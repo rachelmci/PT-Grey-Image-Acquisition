@@ -6,8 +6,8 @@ Created on Wed Nov 28 22:05:00 2018
 @version: 1.0
 MIT Media Lab - Conformable Decoders
 
-Command line-based script used to acquire images from a photogrammetry setup of multiple PT Grey GigE Blackfly cameras
-using Flir's Spinnaker package. Acquisition can be performed through a 'manual' mode (the user clicks to take an image),
+Command line-based script used to acquire images from a setup of multiple PT Grey GigE Blackfly cameras using Flir's
+Spinnaker package. Acquisition can be performed through a 'manual' mode (the user clicks to take an image),
 a 'timed' mode (the user indicates how many pictures to take and the time between shots), or a 'continuous'
 mode (the user enters the number of images to take and the program gathers the images as quickly as possible).
 Images are rotated 90 degrees to account for the camera positioning in the physical setup and saved in folders
@@ -40,15 +40,19 @@ MONO12 = 11
 MONO16 = 1 
         
 
-def initialize(camera_mode, save_path, save_nickname=True):
+def initialize(acquisition_mode, image_mode, save_path, save_nickname=True):
     """
     Creates an instance of the PySpin System and initializes all detected cameras based on user input. It also
     creates all the folders necessary for a camera run - the general date/time folder containing the entire run
     and the folder for each camera detected.
     
     Arguments: 
-        camera_mode: the image format mode to set the camera to - constants defined in global space
+        acquisition_mode: the image acquisition mode that is being used for the run - can be manual, timed, or continuous
+        
+        image_mode: the image format mode to set the camera to - constants defined in global space
+        
         save_path: string representing the path to save the images to
+        
         save_nickname: boolean value to denote whether to use the nicknames in serial_to_number; if this is false, 
         all naming will be based on the camera's serial number instead (default value true)
         
@@ -61,7 +65,7 @@ def initialize(camera_mode, save_path, save_nickname=True):
     system = PySpin.System.GetInstance()
     cameras = system.GetCameras()
     num_cams = cameras.GetSize()
-    print("Cameras detected:" + str(num_cams))
+    print("Cameras detected: " + str(num_cams))
     
     serial_numbers = []
     # initialize the cameras and get their serial numbers
@@ -72,11 +76,14 @@ def initialize(camera_mode, save_path, save_nickname=True):
     del cam
           
     # set acquisition and format mode    
-    # currently, all runs are set to singleframe due to issues with the continuous mode revolving around 1) a bottle neck
-    # sending image data over the ethernet connector and 2) problems with querying multiple cameras for images when in continous mode 
+    # manual and timed modes acquire images in single frame mode
+    # note that to use continuous mode in a six camera setup, the packet delay must be set to 10,000 in FlyCap2
     for i, cam in enumerate(cameras):
-        cam.AcquisitionMode.SetValue(PySpin.AcquisitionMode_SingleFrame)
-        cam.PixelFormat.SetValue(camera_mode)
+        if acquisition_mode == CONTINUOUS_MODE:
+            cam.AcquisitionMode.SetValue(PySpin.AcquisitionMode_Continuous)
+        else:
+            cam.AcquisitionMode.SetValue(PySpin.AcquisitionMode_SingleFrame)
+        cam.PixelFormat.SetValue(image_mode)
     del cam
        
     # create the folders required for saving
@@ -99,7 +106,7 @@ def initialize(camera_mode, save_path, save_nickname=True):
     return (system, cameras, file_path)
   
     
-def acquire_images(cameras, file_path, counter, camera_mode, nickname, num_images=1):
+def acquire_images(cameras, file_path, counter, image_mode, nickname, num_images=1):
     """
     Begins acquisition for the cameras passed in, queries each camera for the passed in number of images,
     and ends acquisition for all of the cameras. Returns a dictionary with the keys being the names for the
@@ -107,12 +114,18 @@ def acquire_images(cameras, file_path, counter, camera_mode, nickname, num_image
     
     Arguments:
         cameras: list containing pointers to all cameras in the system
+        
         file_path: the path of the directory to save images to for this run
+        
         counter: an int representing the current image count for this call of the function
-        camera_mode: the image format mode for this run
+        
+        image_mode: the image format mode for this run
+        
         nickname: boolean value to denote whether to use the nicknames in serial_to_number; if this is false, 
         all naming will be based on the camera's serial number instead
-        num_images: the number of images to take for this run of the function (default 1) 
+        
+        num_images: the number of images to take for this run of the function. The default is 1, which is used
+        by manual and timed modes
     
     Returns:
         A dictionary of all of the images taken.
@@ -131,7 +144,7 @@ def acquire_images(cameras, file_path, counter, camera_mode, nickname, num_image
             cam_serial = cam.TLDevice.DeviceSerialNumber.GetValue()
             image_result = cam.GetNextImage()
             # a conversion or deep copy must be performed so that we can release the image_result pointer
-            converted = image_result.Convert(camera_mode, PySpin.HQ_LINEAR)
+            converted = image_result.Convert(image_mode, PySpin.HQ_LINEAR)
             # determine the format to name the image
             if nickname:
                 cam_number = serial_to_number[cam_serial]
@@ -161,10 +174,14 @@ def save_images(images, file_path, nickname):
     Arguments: 
         images: a dictionary with the values being image pointers and the keys being a string representing
         the appropriate name for the image
+        
         file_path: a string representing the path to save the images to
+        
         nickname: boolean value to denote whether to use the nicknames in serial_to_number; if this is false, 
         all naming will be based on the camera's serial number instead
     """
+    print("Saving images...")
+    
     for image_name in images.keys():
         # determine where to save the images
         if nickname:
@@ -200,7 +217,6 @@ def main():
         # determine the time delay
         time_delay = input("Enter the time delay in seconds: ")
         time_delay = float(time_delay)
-        print("Time delay: " + str(time_delay))
     if camera_mode == MANUAL_MODE:
         # for manual mode images will be taken one at a time
         num_images = 1
@@ -247,7 +263,7 @@ def main():
         return
     
     # initialize the cameras
-    system, cameras, file_path = initialize(image_mode, file_path, save_nickname)
+    system, cameras, file_path = initialize(camera_mode, image_mode, file_path, save_nickname)
 
     
     # begin image acquisition
@@ -271,8 +287,10 @@ def main():
     # timed mode - have the program sleep in between image round (recommended time delay is at least 1 second)
     elif camera_mode == TIMED_MODE:
         print("Time delay: " + str(time_delay))
-        print("Beginning timed image acquisition...")
         time.sleep(5)
+        print("Beginning timed image acquisition...")
+        # create noise to specify that image acquisition has begun
+        print('\a')
         for i in range(1, num_images+1):
             # acquire all images for the entire round first to decrease the time required between rounds
             img_round = acquire_images(cameras, file_path, i, image_mode, save_nickname)
@@ -282,16 +300,16 @@ def main():
             time.sleep(time_delay)
     # continuous mode - have the program take images as fast as possible
     elif camera_mode == CONTINUOUS_MODE: 
-        print("Beginning continuous image acquisition...")
         time.sleep(5)
+        print("Beginning continuous image acquisition...")
         print("Number of images: " + str(num_images))
-        for i in range(1, num_images+1):
-            # acquire all images for the entire round first to decrease the time required between rounds
-            img_round = acquire_images(cameras, file_path, i, image_mode, save_nickname)
-            images.update(img_round)
-            print("Image round " + str(i) + " complete")
-            del img_round
-            
+        # create noise to specify that image acquisition has begun
+        print('\a')
+        # set the counter to 1 for correct image numbering
+        images = acquire_images(cameras, file_path, 1, image_mode, save_nickname, num_images)
+    
+    # make noise to specify that image acquisition has completed
+    print('\a')
     # save the images that we've collected
     save_images(images, file_path, save_nickname)
     print("Image acquisition complete.")
