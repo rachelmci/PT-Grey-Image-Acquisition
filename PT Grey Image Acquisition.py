@@ -100,7 +100,7 @@ def initialize(acquisition_mode, image_mode, save_path, save_nickname=True):
     else:
         camera_numbers = serial_numbers
     for number in camera_numbers:
-        cam_path = time_path + "\\Camera " + str(number)
+        cam_path = time_path + "\\Camera_" + str(number)
         os.mkdir(cam_path)
 
     return (system, cameras, file_path)
@@ -167,7 +167,7 @@ def acquire_images(cameras, file_path, counter, image_mode, nickname, num_images
     
 
 
-def save_images(images, file_path, nickname):
+def save_images(images, file_path, nickname, num_cameras):
     """
     Saves all of the images passed in to the specified file path and rotates them 270 degrees.
     
@@ -179,19 +179,32 @@ def save_images(images, file_path, nickname):
         
         nickname: boolean value to denote whether to use the nicknames in serial_to_number; if this is false, 
         all naming will be based on the camera's serial number instead
+
+        num_cameras: int representing the total number of cameras used in the run
     """
     print("Saving images...")
-    
+    # determine the expected length of the image name
+    # MultiDIC requires leading zeros if there are more than 9 images in the run
+    num_rounds = len(images)//num_cameras
+    name_length = len(str(num_rounds))
     for image_name in images.keys():
         # determine where to save the images
+        # adjust the image name as needed
+        underscore = image_name.index("_")
+        number = image_name[underscore+1:]
+        if len(str(number)) < name_length:
+            zeros = "0"*(name_length - len(str(number)))
+            save_name = image_name[:underscore+1] + zeros + image_name[underscore+1:]
+        else:
+            save_name = image_name
         if nickname:
             # pull the camera number from the image name - assumes less than 10 cameras in a setup
             cam_number = image_name[3]
-            path = file_path + "\\Camera " + str(cam_number) + "\\" + image_name +  ".png"
+            path = file_path + "\\Camera_" + str(cam_number) + "\\" + save_name +  ".png"
         else:
             # pull the serial number from the image name
             cam_serial = image_name[3:image_name.index("i")]
-            path = file_path + "\\Camera " + str(cam_serial) + "\\" + image_name +  ".png"
+            path = file_path + "\\Camera_" + str(cam_serial) + "\\" + save_name +  ".png"
         images[image_name].Save(path)
         # rotate the image for better viewing
         im = Image.open(path)
@@ -311,7 +324,7 @@ def main():
     # make noise to specify that image acquisition has completed
     print('\a')
     # save the images that we've collected
-    save_images(images, file_path, save_nickname)
+    save_images(images, file_path, save_nickname, len(cameras))
     print("Image acquisition complete.")
     
     # deinitialize cameras
